@@ -1,6 +1,8 @@
 from fastapi import FastAPI, Header, Request, Depends
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 from models import (
     UserSignupRequest, UserUpdateRequest, UserResponse, 
     UserDetailResponse, MessageResponse, users_db
@@ -8,8 +10,32 @@ from models import (
 from auth import hash_password, verify_password, decode_basic_auth
 import re
 
-app = FastAPI(title="User Management API", version="1.0.0")
+# テスト用アカウントを事前作成
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    test_password = "Test-"
+    hashed_password = hash_password(test_password)
+    users_db["Test-"] = {
+        "user_id": "Test-",
+        "password": hashed_password,
+        "nickname": "Test-",
+        "comment": "テスト用アカウント"
+    }
+    yield
+    # Shutdown（特に何もしない）
+
+app = FastAPI(title="User Management API", version="1.0.0", lifespan=lifespan)
 security = HTTPBasic()
+
+# CORS設定を追加
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.post("/signup", status_code=200, response_model=UserDetailResponse)
@@ -151,7 +177,15 @@ async def update_user(user_id: str, update_request: UserUpdateRequest, request: 
         auth_user_id, auth_password = decode_basic_auth(authorization)
         user_data = users_db[user_id]
         
-        if auth_user_id != user_id or not verify_password(auth_password, user_data["password"]):
+        # 異なるユーザーIDの場合は403
+        if auth_user_id != user_id:
+            return JSONResponse(
+                status_code=403,
+                content={"message": "No permission for update"}
+            )
+        
+        # パスワードが間違っている場合は401
+        if not verify_password(auth_password, user_data["password"]):
             return JSONResponse(
                 status_code=401,
                 content={"message": "Authentication failed"}

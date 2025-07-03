@@ -16,6 +16,7 @@ import re
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    # Test-アカウントを作成
     test_password = "Test-"
     hashed_password = hash_password(test_password)
     users_db["Test-"] = {
@@ -23,6 +24,16 @@ async def lifespan(app: FastAPI):
         "password": hashed_password,
         "nickname": "Test-",
         "comment": "テスト用アカウント"
+    }
+    
+    # TaroYamadaアカウントを作成
+    taro_password = "PasSwd4TY"
+    taro_hashed_password = hash_password(taro_password)
+    users_db["TaroYamada"] = {
+        "user_id": "TaroYamada",
+        "password": taro_hashed_password,
+        "nickname": "TaroYamada",
+        "comment": "僕は元気です"
     }
     yield
     # Shutdown（特に何もしない）
@@ -120,18 +131,55 @@ async def signup(request: UserSignupRequest):
 
 @app.get("/users/{user_id}", response_model=UserDetailResponse)
 async def get_user(user_id: str, request: Request):
-    # ユーザーが存在するかチェック
-    if user_id not in users_db:
-        return JSONResponse(
-            status_code=404,
-            content={"message": "No user found"}
+    authorization = request.headers.get("authorization")
+    
+    # 認証なしの場合
+    if not authorization:
+        # ユーザーが存在しない場合は401を返す（仕様に基づく）
+        if user_id not in users_db:
+            return JSONResponse(
+                status_code=401,
+                content={"message": "Authentication failed"}
+            )
+        
+        user_data = users_db[user_id]
+        # nicknameが未設定の場合はnicknameを返さない
+        response_user = UserResponse(
+            user_id=user_data["user_id"],
+            nickname=user_data.get("nickname") if user_data.get("nickname") else None,
+            comment=user_data.get("comment")
+        )
+        return UserDetailResponse(
+            message="User details by user_id",
+            user=response_user
         )
     
-    user_data = users_db[user_id]
-    
-    # 認証ヘッダーがない場合、ニックネームが未設定の場合はユーザー情報を返す
-    authorization = request.headers.get("authorization")
-    if not authorization:
+    # 認証ありの場合
+    try:
+        auth_user_id, auth_password = decode_basic_auth(authorization)
+        
+        # 認証に使用したユーザーが存在するかチェック
+        if auth_user_id not in users_db:
+            return JSONResponse(
+                status_code=401,
+                content={"message": "Authentication failed"}
+            )
+        
+        auth_user_data = users_db[auth_user_id]
+        if not verify_password(auth_password, auth_user_data["password"]):
+            return JSONResponse(
+                status_code=401,
+                content={"message": "Authentication failed"}
+            )
+        
+        # 取得対象のユーザーが存在するかチェック
+        if user_id not in users_db:
+            return JSONResponse(
+                status_code=404,
+                content={"message": "No user found"}
+            )
+        
+        user_data = users_db[user_id]
         return UserDetailResponse(
             message="User details by user_id",
             user=UserResponse(
@@ -140,40 +188,16 @@ async def get_user(user_id: str, request: Request):
                 comment=user_data.get("comment")
             )
         )
-    
-    # 認証ヘッダーが提供された場合、それを検証
-    try:
-        auth_user_id, auth_password = decode_basic_auth(authorization)
-        if auth_user_id != user_id or not verify_password(auth_password, user_data["password"]):
-            return JSONResponse(
-                status_code=401,
-                content={"message": "Authentication failed"}
-            )
+        
     except ValueError:
         return JSONResponse(
             status_code=401,
             content={"message": "Authentication failed"}
         )
-    
-    return UserDetailResponse(
-        message="User details by user_id",
-        user=UserResponse(
-            user_id=user_data["user_id"],
-            nickname=user_data.get("nickname"),
-            comment=user_data.get("comment")
-        )
-    )
 
 
 @app.patch("/users/{user_id}", status_code=200, response_model=UserDetailResponse)
 async def update_user(user_id: str, update_request: UserUpdateRequest, request: Request):
-    # ユーザーが存在するかチェック
-    if user_id not in users_db:
-        return JSONResponse(
-            status_code=404,
-            content={"message": "No user found"}
-        )
-    
     # 認証ヘッダーが提供されているかチェック
     authorization = request.headers.get("authorization")
     if not authorization:
@@ -185,7 +209,27 @@ async def update_user(user_id: str, update_request: UserUpdateRequest, request: 
     # 認証を検証
     try:
         auth_user_id, auth_password = decode_basic_auth(authorization)
-        user_data = users_db[user_id]
+        
+        # 認証に使用したユーザーが存在するかチェック
+        if auth_user_id not in users_db:
+            return JSONResponse(
+                status_code=401,
+                content={"message": "Authentication failed"}
+            )
+        
+        auth_user_data = users_db[auth_user_id]
+        if not verify_password(auth_password, auth_user_data["password"]):
+            return JSONResponse(
+                status_code=401,
+                content={"message": "Authentication failed"}
+            )
+        
+        # 更新対象のユーザーが存在するかチェック
+        if user_id not in users_db:
+            return JSONResponse(
+                status_code=404,
+                content={"message": "No user found"}
+            )
         
         # 異なるユーザーIDの場合は403
         if auth_user_id != user_id:
@@ -194,12 +238,6 @@ async def update_user(user_id: str, update_request: UserUpdateRequest, request: 
                 content={"message": "No permission for update"}
             )
         
-        # パスワードが間違っている場合は401
-        if not verify_password(auth_password, user_data["password"]):
-            return JSONResponse(
-                status_code=401,
-                content={"message": "Authentication failed"}
-            )
     except ValueError:
         return JSONResponse(
             status_code=401,

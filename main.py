@@ -153,19 +153,12 @@ async def get_user(user_id: str, request: Request):
     
     # 認証なしの場合
     if not authorization:
-        # nicknameが未設定の場合は401を返す
-        if user_data.get("nickname") is None:
-            return JSONResponse(
-                status_code=401,
-                content={"message": "Authentication failed"}
-            )
-        
-        # nicknameが設定されている場合のみ公開情報として返す
+        # 基本的には公開情報として返すが、nicknameが未設定の場合は表示しない
         return UserDetailResponse(
             message="User details by user_id",
             user=UserResponse(
                 user_id=user_data["user_id"],
-                nickname=user_data.get("nickname"),
+                nickname=user_data.get("nickname") if user_data.get("nickname") else None,
                 comment=user_data.get("comment")
             )
         )

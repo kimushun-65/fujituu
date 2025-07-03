@@ -1,8 +1,10 @@
-from fastapi import FastAPI, Header, Request, Depends
+from fastapi import FastAPI, Header, Request, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from models import (
     UserSignupRequest, UserUpdateRequest, UserResponse, 
     UserDetailResponse, MessageResponse, users_db
@@ -36,6 +38,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 422エラーを400エラーに変換するハンドラー
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=400,
+        content={"message": "Account creation failed", "cause": "Required user_id and password"}
+    )
 
 
 @app.post("/signup", status_code=200, response_model=UserDetailResponse)
@@ -156,7 +166,7 @@ async def get_user(user_id: str, request: Request):
 
 
 @app.patch("/users/{user_id}", status_code=200, response_model=UserDetailResponse)
-async def update_user(user_id: str, update_request: UserUpdateRequest, request: Request, credentials: HTTPBasicCredentials = Depends(security)):
+async def update_user(user_id: str, update_request: UserUpdateRequest, request: Request):
     # ユーザーが存在するかチェック
     if user_id not in users_db:
         return JSONResponse(
@@ -255,7 +265,7 @@ async def update_user(user_id: str, update_request: UserUpdateRequest, request: 
 
 
 @app.post("/close", status_code=200, response_model=MessageResponse)
-async def close_account(request: Request, credentials: HTTPBasicCredentials = Depends(security)):
+async def close_account(request: Request):
     # 認証ヘッダーが提供されているかチェック
     authorization = request.headers.get("authorization")
     if not authorization:

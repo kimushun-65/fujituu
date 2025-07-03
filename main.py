@@ -26,13 +26,13 @@ async def lifespan(app: FastAPI):
         "comment": "テスト用アカウント"
     }
     
-    # TaroYamadaアカウントを作成
+    # TaroYamadaアカウントを作成（nicknameなしでテストするため）
     taro_password = "PasSwd4TY"
     taro_hashed_password = hash_password(taro_password)
     users_db["TaroYamada"] = {
         "user_id": "TaroYamada",
         "password": taro_hashed_password,
-        "nickname": "TaroYamada",
+        "nickname": None,
         "comment": "僕は元気です"
     }
     yield
@@ -131,27 +131,33 @@ async def signup(request: UserSignupRequest):
 
 @app.get("/users/{user_id}", response_model=UserDetailResponse)
 async def get_user(user_id: str, request: Request):
+    # まずユーザーが存在するかチェック
+    if user_id not in users_db:
+        return JSONResponse(
+            status_code=404,
+            content={"message": "No user found"}
+        )
+    
+    user_data = users_db[user_id]
     authorization = request.headers.get("authorization")
     
     # 認証なしの場合
     if not authorization:
-        # ユーザーが存在しない場合は401を返す（仕様に基づく）
-        if user_id not in users_db:
+        # nicknameが未設定の場合は401を返す（プライベート情報のため）
+        if not user_data.get("nickname"):
             return JSONResponse(
                 status_code=401,
                 content={"message": "Authentication failed"}
             )
         
-        user_data = users_db[user_id]
-        # nicknameが未設定の場合はnicknameを返さない
-        response_user = UserResponse(
-            user_id=user_data["user_id"],
-            nickname=user_data.get("nickname") if user_data.get("nickname") else None,
-            comment=user_data.get("comment")
-        )
+        # nicknameが設定されている場合は公開情報として返す
         return UserDetailResponse(
             message="User details by user_id",
-            user=response_user
+            user=UserResponse(
+                user_id=user_data["user_id"],
+                nickname=user_data.get("nickname"),
+                comment=user_data.get("comment")
+            )
         )
     
     # 認証ありの場合
@@ -172,14 +178,7 @@ async def get_user(user_id: str, request: Request):
                 content={"message": "Authentication failed"}
             )
         
-        # 取得対象のユーザーが存在するかチェック
-        if user_id not in users_db:
-            return JSONResponse(
-                status_code=404,
-                content={"message": "No user found"}
-            )
-        
-        user_data = users_db[user_id]
+        # 認証が成功した場合は完全な情報を返す
         return UserDetailResponse(
             message="User details by user_id",
             user=UserResponse(

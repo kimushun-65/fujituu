@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI):
     users_db["TaroYamada"] = {
         "user_id": "TaroYamada",
         "password": taro_hashed_password,
-        "nickname": "TaroYamada",
+        "nickname": "たろー",
         "comment": "僕は元気です"
     }
     
@@ -153,12 +153,19 @@ async def get_user(user_id: str, request: Request):
     
     # 認証なしの場合
     if not authorization:
-        # 基本的には公開情報として返すが、nicknameが未設定の場合は表示しない
+        # nicknameが未設定の場合は401を返す
+        if not user_data.get("nickname"):
+            return JSONResponse(
+                status_code=401,
+                content={"message": "Authentication failed"}
+            )
+        
+        # nicknameが設定されている場合は公開情報として返す
         return UserDetailResponse(
             message="User details by user_id",
             user=UserResponse(
                 user_id=user_data["user_id"],
-                nickname=user_data.get("nickname") if user_data.get("nickname") else None,
+                nickname=user_data.get("nickname"),
                 comment=user_data.get("comment")
             )
         )
